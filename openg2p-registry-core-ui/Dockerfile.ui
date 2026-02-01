@@ -7,24 +7,18 @@ FROM base AS builder
 RUN apk add --no-cache git
 
 ARG REPO_URL=https://github.com/Q-Niranjan/openg2p-registry-core-ui.git
-ARG GIT_BRANCH=develop
+ARG GIT_BRANCH=develop 
 
-# Clone repo
 RUN git clone --branch ${GIT_BRANCH} --depth 1 ${REPO_URL} .
 
 # ---- Cache npm install layer ----
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# ---- Copy rest of source & build ----
-COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-# ---------- Runner ----------
-FROM node:20-alpine AS runner
-WORKDIR /app
-
+FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
@@ -39,13 +33,21 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy core locales (overridden by ConfigMap at runtime)
+# Copy core locales from builder
 COPY --from=builder --chown=nextjs:nodejs /app/locales ./locales
 
-# Runtime dependency required by Next/Image
 RUN npm install sharp
+
+# Create directory for extension locales
+RUN mkdir -p /app/extension-locales && \
+    chown -R nextjs:nodejs /app/extension-locales
+
+# Add simple entrypoint
+COPY --chown=nextjs:nodejs docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 USER nextjs
 EXPOSE 3000
 
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "server.js"]

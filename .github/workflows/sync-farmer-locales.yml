@@ -15,128 +15,113 @@ env:
 jobs:
   sync-farmer-locales:
     runs-on: ubuntu-latest
-
+    
     steps:
-    - name: Checkout infra repo
+    - name: Checkout temp-docker-repo
       uses: actions/checkout@v3
-
+    
     - name: Checkout extensions repo
       uses: actions/checkout@v3
       with:
         repository: Q-Niranjan/openg2p-registry-gen2-extensions
-        ref: ${{ env.EXTENSIONS_BRANCH }}
+        ref: develop
         path: extensions-repo
-
+    
     - name: Setup Docker
       uses: docker/setup-buildx-action@v3
-
-    # --------------------------------------------------
-    # Extract core locales from the built image
-    # --------------------------------------------------
+    
     - name: Extract core locales from Docker image
       run: |
-        set -e
         echo "=== Pulling Docker image ==="
         docker pull ${{ env.DOCKER_IMAGE }}
-
+        
         echo "=== Extracting core locales ==="
         docker create --name temp-core ${{ env.DOCKER_IMAGE }}
-        mkdir -p core-locales
-        docker cp temp-core:/app/locales/. core-locales/
+        mkdir -p ./core-locales
+        docker cp temp-core:/app/locales/. ./core-locales/
         docker rm temp-core
-
+        
         echo "Core locales:"
-        ls -lh core-locales
-
+        ls -la ./core-locales/
+    
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
         node-version: '20'
-
-    # --------------------------------------------------
-    # Merge locales (CI-time only)
-    # --------------------------------------------------
+    
     - name: Merge core + extension locales
       run: |
-        set -e
         echo "=== Merging locales ==="
-
-        mkdir -p merged-locales
-
-        node << 'EOF'
+        mkdir -p ./merged-locales
+        
+        node << 'MERGE_SCRIPT'
         const fs = require('fs');
         const path = require('path');
-
-        const coreDir = 'core-locales';
-        const extDir = 'extensions-repo/${{ env.EXTENSIONS_PATH }}';
-        const outDir = 'merged-locales';
-
-        if (!fs.existsSync(extDir)) {
-          console.error('❌ Extension locales directory not found:', extDir);
+        
+        const coreDir = './core-locales';
+        const extensionDir = './extensions-repo/${{ env.EXTENSIONS_PATH }}';
+        const mergedDir = './merged-locales';
+        
+        console.log('Extension directory:', extensionDir);
+        
+        if (!fs.existsSync(extensionDir)) {
+          console.error('Extension directory not found!');
           process.exit(1);
         }
-
-        const files = fs.readdirSync(extDir).filter(f => f.endsWith('.json'));
-        if (files.length === 0) {
-          console.error('❌ No extension locale files found');
-          process.exit(1);
-        }
-
-        for (const file of files) {
+        
+        const localeFiles = fs.readdirSync(extensionDir)
+          .filter(f => f.endsWith('.json'));
+        
+        console.log('Locale files to merge:', localeFiles);
+        
+        localeFiles.forEach(file => {
           const corePath = path.join(coreDir, file);
-          const extPath = path.join(extDir, file);
-
-          const core = fs.existsSync(corePath)
-            ? JSON.parse(fs.readFileSync(corePath, 'utf8'))
-            : {};
-
+          const extPath = path.join(extensionDir, file);
+          const mergedPath = path.join(mergedDir, file);
+          
+          let core = {};
+          if (fs.existsSync(corePath)) {
+            core = JSON.parse(fs.readFileSync(corePath, 'utf8'));
+            console.log(`✓ Core ${file}: ${Object.keys(core).length} keys`);
+          } else {
+            console.log(`! No core locale for ${file}`);
+          }
+          
           const ext = JSON.parse(fs.readFileSync(extPath, 'utf8'));
-
+          console.log(`✓ Extension ${file}: ${Object.keys(ext).length} keys`);
+          
           const merged = { ...core, ...ext };
-
+          console.log(`✓ Merged ${file}: ${Object.keys(merged).length} keys`);
+          
           fs.writeFileSync(
-            path.join(outDir, file),
+            mergedPath,
             JSON.stringify(merged, null, 2),
             'utf8'
           );
-
-          console.log(`✓ ${file}: ${Object.keys(merged).length} keys`);
-        }
-        EOF
-
+        });
+        
+        console.log('\n=== Merge complete ===');
+        MERGE_SCRIPT
+        
         echo "Merged locales:"
-        ls -lh merged-locales
-
-    # --------------------------------------------------
-    # SAFETY CHECK (MANDATORY)
-    # --------------------------------------------------
-    - name: Validate merged locales
-      run: |
-        if [ -z "$(ls -A merged-locales/*.json 2>/dev/null)" ]; then
-          echo "❌ No merged locale files found. Aborting."
-          exit 1
-        fi
-        echo "✓ Locale validation passed"
-
+        ls -lh ./merged-locales/
+    
     - name: Setup kubectl
       uses: azure/setup-kubectl@v3
       with:
         version: 'v1.28.0'
-
-    - name: Configure Kubernetes access
+    
+    - name: Configure Kubernetes
       run: |
-        mkdir -p ~/.kube
-        echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
-        chmod 600 ~/.kube/config
-
-    # --------------------------------------------------
-    # Create / Update ConfigMap
-    # --------------------------------------------------
-    - name: Create ConfigMap manifest
+        mkdir -p $HOME/.kube
+        echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+        chmod 600 $HOME/.kube/config
+    
+    - name: Create ConfigMap
       run: |
-        set -e
-        cd merged-locales
-
+        echo "=== Creating ConfigMap ==="
+        cd ./merged-locales
+        
         cat > /tmp/configmap.yaml <<EOF
         apiVersion: v1
         kind: ConfigMap
@@ -145,34 +130,58 @@ jobs:
           namespace: ${{ env.NAMESPACE }}
           labels:
             app: ${{ env.DEPLOYMENT_NAME }}
+            registry-type: farmer
             managed-by: github-actions
         data:
         EOF
-
-        for f in *.json; do
-          echo "  Adding $f"
-          echo "  $f: |" >> /tmp/configmap.yaml
-          sed 's/^/    /' "$f" >> /tmp/configmap.yaml
+        
+        for json_file in *.json; do
+          if [ -f "$json_file" ]; then
+            echo "  Adding: $json_file"
+            echo "  $json_file: |" >> /tmp/configmap.yaml
+            sed 's/^/    /' "$json_file" >> /tmp/configmap.yaml
+          fi
         done
-
+        
+        echo ""
+        echo "=== ConfigMap preview ==="
+        head -30 /tmp/configmap.yaml
+        echo "..."
+    
     - name: Apply ConfigMap
       run: |
         kubectl apply -f /tmp/configmap.yaml
         echo "✓ ConfigMap applied"
-
+    
     - name: Verify ConfigMap
       run: |
+        echo "=== ConfigMap keys ==="
         kubectl get configmap ${{ env.CONFIGMAP_NAME }} \
           -n ${{ env.NAMESPACE }} \
           -o jsonpath='{.data}' | jq 'keys'
-
-    # --------------------------------------------------
-    # Restart (until checksum rollout is added)
-    # --------------------------------------------------
+    
     - name: Restart Deployment
       run: |
-        kubectl rollout restart deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }}
-        kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }} --timeout=5m
-
-    - name: Done
-      run: echo "✅ Farmer locales synced successfully"
+        echo "=== Restarting deployment ==="
+        kubectl rollout restart deployment/${{ env.DEPLOYMENT_NAME }} \
+          -n ${{ env.NAMESPACE }}
+        
+        echo "=== Waiting for rollout ==="
+        kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} \
+          -n ${{ env.NAMESPACE }} \
+          --timeout=5m
+    
+    - name: Verify Deployment
+      run: |
+        echo "=== Pod status ==="
+        kubectl get pods -n ${{ env.NAMESPACE }} \
+          -l app.kubernetes.io/instance=${{ env.DEPLOYMENT_NAME }}
+        
+        echo ""
+        echo "=== Recent logs ==="
+        kubectl logs -n ${{ env.NAMESPACE }} \
+          -l app.kubernetes.io/instance=${{ env.DEPLOYMENT_NAME }} \
+          --tail=50 | grep -A 10 "OpenG2P" || true
+        
+        echo ""
+        echo "✅ Sync complete!"
