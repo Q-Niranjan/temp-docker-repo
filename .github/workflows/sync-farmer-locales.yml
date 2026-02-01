@@ -2,10 +2,6 @@ name: Sync Farmer Locales to Kubernetes
 
 on:
   workflow_dispatch:
-  schedule:
-    # Run every hour to check for locale updates
-    - cron: '0 * * * *'
-  # Or trigger manually via API/webhook
 
 env:
   DOCKER_IMAGE: qniranjan01/openg2p-registry-core-ui:develop
