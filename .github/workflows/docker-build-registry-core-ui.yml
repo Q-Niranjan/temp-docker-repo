@@ -16,15 +16,11 @@ jobs:
             serviceFile: openg2p-registry-core-ui/registry-core-ui.txt
 
     steps:
-      # --------------------------------------------------
-      # Checkout infra repo (Dockerfile + workflows)
-      # --------------------------------------------------
+
       - name: Checkout infra repo
         uses: actions/checkout@v4
 
-      # --------------------------------------------------
-      # Checkout Core UI source (THIS IS THE KEY CHANGE)
-      # --------------------------------------------------
+   
       - name: Checkout core-ui source
         uses: actions/checkout@v4
         with:
@@ -32,9 +28,7 @@ jobs:
           ref: develop
           path: app
 
-      # --------------------------------------------------
-      # Buildx only (DEV optimized, no QEMU)
-      # --------------------------------------------------
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -44,9 +38,7 @@ jobs:
           username: ${{ secrets.docker_hub_actor }}
           password: ${{ secrets.docker_hub_token }}
 
-      # --------------------------------------------------
-      # Read service file
-      # --------------------------------------------------
+    
       - name: Read service file - ${{ matrix.name }}
         id: read
         shell: bash
@@ -77,9 +69,7 @@ jobs:
           echo "commit=$COMMIT_HASH" >> "$GITHUB_OUTPUT"
           echo "created=$CREATED" >> "$GITHUB_OUTPUT"
 
-      # --------------------------------------------------
-      # Build & Push (FAST DEV BUILD)
-      # --------------------------------------------------
+ 
       - name: Build and push - ${{ matrix.name }}
         uses: docker/build-push-action@v6
         with:
@@ -87,12 +77,10 @@ jobs:
           file: ${{ steps.read.outputs.dockerfile }}
           push: true
 
-          # 🔥 DEV: amd64 only
           platforms: linux/amd64
 
           tags: ${{ steps.read.outputs.image }}
 
-          # 🔥 Docker layer cache
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
