@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: OpenG2P/openg2p-registry-staff-portal-ui
-          ref: develop-config
+          ref: develop
           path: app
 
 
