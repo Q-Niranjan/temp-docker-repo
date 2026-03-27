@@ -24,8 +24,8 @@ jobs:
       - name: Checkout core-ui source
         uses: actions/checkout@v4
         with:
-          repository: Q-Niranjan/openg2p-registry-staff-portal-ui
-          ref: develop
+          repository: Q-Niranjan/openg2p-registry-gen2-staff-portal-ui
+          ref: 1.0
           path: app
 
 
