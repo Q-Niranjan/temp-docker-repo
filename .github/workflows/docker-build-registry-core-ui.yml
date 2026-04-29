@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Q-Niranjan/openg2p-registry-gen2-staff-portal-ui
-          ref: "nsr-demo"
+          ref: "G2P-4633-Intake-Form"
           path: app
 
 
