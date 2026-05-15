@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Q-Niranjan/openg2p-registry-gen2-staff-portal-ui
-          ref: "develop"
+          ref: "temp"
           path: app
 
 
